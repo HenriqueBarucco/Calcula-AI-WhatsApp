@@ -3,6 +3,7 @@ import { StorageService } from 'src/storage/storage.service'
 import { CalculaAiApiService } from 'src/services/calcula-ai-api/calcula-ai-api.service'
 import { MessageService } from 'src/message/message.service'
 import { Message } from 'easy-whatsapp-lib/lib/cjs/types/message'
+import { ConfigService } from '@nestjs/config'
 
 const SESSION_KEY = 'sessionId'
 
@@ -13,6 +14,7 @@ export class CommandService {
     private readonly storage: StorageService,
     private readonly calculaAiApi: CalculaAiApiService,
     private readonly messageService: MessageService,
+    private readonly config: ConfigService,
   ) {}
 
   async handleCommand(command: string, message: Message) {
@@ -32,7 +34,7 @@ export class CommandService {
         await this.handleTotalCommand(message)
         break
       default:
-        console.log(`Command ${command} not found`)
+        this.notify('Esse comando não existe não... 🤔')
         break
     }
   }
@@ -41,28 +43,26 @@ export class CommandService {
     const existing = await this.storage.get<string>(SESSION_KEY)
     if (existing) {
       console.log('Session already exists, skipping start')
+      this.notify('Já existe uma sessão iniciada. Use /end para encerrar.')
       return
     }
 
     const id = await this.calculaAiApi.createSession()
     await this.storage.set(SESSION_KEY, id)
     console.log('Session started:', id)
+    this.notify('Sessão iniciada com sucesso. 🛒')
   }
 
   private async endSession(): Promise<void> {
     await this.storage.remove(SESSION_KEY)
     console.log('Session ended and local key cleared')
+
+    this.notify('Sessão encerrada com sucesso. 💰')
   }
 
   private async handleTotalCommand(message: Message): Promise<void> {
     const sessionId = await this.getSessionId()
-    if (!sessionId) {
-      await this.messageService.sendMessage(
-        message.group ?? message.phone,
-        'Nenhuma sessão iniciada. Use /start primeiro.',
-      )
-      return
-    }
+    if (!sessionId) return
 
     try {
       const session = await this.calculaAiApi.getSession({ sessionId })
@@ -72,17 +72,17 @@ export class CommandService {
       const top5 = session.prices.slice(0, 5)
       const bullets = top5
         .map((p) => {
-          const statusLabel =
-            p.status?.toUpperCase() === 'SUCCESS' ? 'OK' : 'PROCESSING'
-          const name = p.name ?? 'Sem nome'
+          const isSuccess = p.status?.toUpperCase() === 'SUCCESS'
+          if (!isSuccess) return '• - (Processando)'
+          const name = p.name ?? '...'
           const value = typeof p.value === 'number' ? p.value.toFixed(2) : '—'
-          return `• ${name} - ${value} (${statusLabel})`
+          return `• ${name} - ${value}`
         })
         .join('\n')
 
       const lines = [
-        `Total: ${session.total.toFixed(2)}`,
-        `Concluídos: ${successCount}`,
+        `*Valor total*: R$: ${session.total.toFixed(2)}`,
+        `Produtos processados: ${successCount}`,
         bullets && bullets.length > 0 ? bullets : '—',
       ]
 
@@ -91,8 +91,7 @@ export class CommandService {
         lines.join('\n'),
       )
     } catch (e) {
-      await this.messageService.sendMessage(
-        message.group ?? message.phone,
+      await this.notify(
         'Não foi possível obter o total. Tente novamente mais tarde.',
       )
     }
@@ -100,13 +99,7 @@ export class CommandService {
 
   private async handleImageMessage(message: Message): Promise<void> {
     const sessionId = await this.getSessionId()
-    if (!sessionId) {
-      await this.messageService.sendMessage(
-        message.group ?? message.phone,
-        'Nenhuma sessão iniciada. Use /start primeiro.',
-      )
-      return
-    }
+    if (!sessionId) return
 
     const { data, mimetype, caption } = message
     if (!data) {
@@ -144,12 +137,24 @@ export class CommandService {
         caption,
       })
       console.log('Price API success')
+
+      await this.notify('Já estou indo processar essa imagem! 👀')
     } catch (e) {
       console.error('Price API failed:', e)
     }
   }
 
-  async getSessionId(): Promise<string | undefined> {
-    return this.storage.get<string>(SESSION_KEY)
+  private async getSessionId(): Promise<string | undefined> {
+    const sessionId = await this.storage.get<string>(SESSION_KEY)
+    if (!sessionId) {
+      await this.notify('Nenhuma sessão iniciada. Use /start primeiro.')
+      return undefined
+    }
+    return sessionId
+  }
+
+  private async notify(message: string) {
+    const group = this.config.get<string>('GROUP')
+    await this.messageService.sendMessage(group, message)
   }
 }

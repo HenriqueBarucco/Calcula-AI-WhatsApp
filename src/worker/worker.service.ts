@@ -12,14 +12,12 @@ export class WorkerService {
   ) {}
 
   async handleReceivedMessage(message: Message): Promise<void> {
-    const isAllowedGroup = this.config.get<string>('ALLOWED_GROUP')
+    const isAllowedGroup = this.config.get<string>('GROUP')
     if (isAllowedGroup && message?.group !== isAllowedGroup) return
 
     const text = (message.message || '').trim()
-    if (!text) return
-
     const [maybeCommand] = text.split(/\s+/)
-    const command = maybeCommand.replace(/^\//, '').toLowerCase()
+    const command = (maybeCommand || '').replace(/^\//, '').toLowerCase()
 
     await this.commandService.handleCommand(command, message)
   }
