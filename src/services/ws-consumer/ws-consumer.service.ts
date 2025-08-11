@@ -1,0 +1,193 @@
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  forwardRef,
+} from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import {
+  Client,
+  FrameImpl,
+  IMessage,
+  Stomp,
+  IStompSocket,
+} from '@stomp/stompjs'
+import { WorkerService } from 'src/worker/worker.service'
+import { parseJson } from 'src/helpers/json'
+import { isPriceAnnounceMessage } from 'src/helpers/price'
+import { StorageService } from 'src/storage/storage.service'
+
+interface WsCloseEvent {
+  code?: number
+  reason?: string
+  wasClean?: boolean
+}
+
+@Injectable()
+export class WsConsumerService implements OnModuleInit {
+  private client: Client | null = null
+  private currentSessionId: string | null = null
+  private sessionCheckTimer: NodeJS.Timeout | null = null
+  private unsubscribeFn: (() => void) | null = null
+  private readonly logger = new Logger(WsConsumerService.name)
+
+  // eslint-disable-next-line no-useless-constructor
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(forwardRef(() => WorkerService))
+    private readonly worker: WorkerService,
+    private readonly storage: StorageService,
+  ) {}
+
+  async onModuleInit() {
+    const url = this.config.get<string>('WS_URL')
+
+    if (!url) {
+      this.logger.warn('WS_URL env not set; skipping WS connection')
+      return
+    }
+    this.logger.log(`Scheduling WS connection to ${url}`)
+    setTimeout(() => this.connect(url).catch(() => {}), 500)
+  }
+
+  private async connect(url: string) {
+    if (this.client?.connected) return
+
+    this.logger.log(`Connecting to WebSocket/STOMP at ${url}`)
+    this.client = Stomp.over(() => this.createWs(url))
+    this.client.reconnectDelay = 3000
+    this.client.debug = () => {}
+
+    await new Promise<void>((resolve) => {
+      this.client!.onConnect = () => {
+        this.logger.log('Connected to STOMP broker')
+        this.initSessionWatcher()
+        resolve()
+      }
+      this.client!.onStompError = (frame: FrameImpl) => {
+        this.logger.error(`Broker reported error: ${frame.headers.message}`)
+        if (frame.body) this.logger.error(`Details: ${frame.body}`)
+      }
+      this.client!.onDisconnect = () => {
+        this.logger.log('Disconnected from STOMP broker')
+      }
+      this.client!.onWebSocketClose = (evt: unknown) => {
+        const { code, reason, wasClean } = (evt as WsCloseEvent) || {}
+        const codeSafe = code ?? -1
+        const reasonSafe = reason ?? 'n/a'
+        const cleanSafe = wasClean ?? false
+        this.logger.warn(
+          `WebSocket closed (code=${codeSafe}, clean=${cleanSafe}) reason=${reasonSafe}`,
+        )
+      }
+      this.client!.onWebSocketError = (evt: unknown) => {
+        if (evt instanceof Error) {
+          this.logger.error('WebSocket error', evt.stack)
+        } else {
+          this.logger.error(`WebSocket error: ${String(evt)}`)
+        }
+      }
+      this.client!.activate()
+    })
+  }
+
+  private createWs(url: string): IStompSocket {
+    if (/^https?:\/\//i.test(url)) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const WsLib = require('ws')
+        const g = globalThis as { WebSocket?: unknown }
+        if (!g.WebSocket) {
+          g.WebSocket = WsLib as unknown
+        }
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const SockJS = require('sockjs-client')
+        this.logger.log('Using SockJS transport')
+        const sock = new SockJS(url)
+        return sock as unknown as IStompSocket
+      } catch (err) {
+        this.logger.warn('SockJS unavailable, falling back to raw WebSocket')
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const WS = require('ws')
+    const Ctor = (WS && (WS.WebSocket || WS.default)) || WS
+    const instance = typeof Ctor === 'function' ? new Ctor(url) : new WS(url)
+    this.logger.log('Using raw WebSocket transport')
+    return instance as unknown as IStompSocket
+  }
+
+  private initSessionWatcher() {
+    const poll = async () => {
+      try {
+        const newId = (await this.storage.get<string>('sessionId')) || null
+        if (newId !== this.currentSessionId && this.client?.connected) {
+          this.logger.log('SessionId change detected')
+          this.resubscribe(newId)
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    poll()
+    this.sessionCheckTimer && clearInterval(this.sessionCheckTimer)
+    this.sessionCheckTimer = setInterval(poll, 5000)
+  }
+
+  private resubscribe(newSessionId: string | null) {
+    if (this.unsubscribeFn) {
+      try {
+        this.unsubscribeFn()
+      } catch {}
+      this.unsubscribeFn = null
+      this.logger.log('Unsubscribed from previous destination')
+    }
+    this.currentSessionId = newSessionId
+    if (!newSessionId) return
+    this.logger.log(`Subscribing to destination: ${newSessionId}`)
+    this.unsubscribeFn = this.subscribe(newSessionId)
+  }
+
+  private subscribe(sessionId: string): () => void {
+    const sub = this.client?.subscribe(
+      `/topic/${sessionId}`,
+      (msg: IMessage) => {
+        this.logger.debug(`Received WS message on ${sessionId}`)
+        this.handle(msg)
+      },
+    )
+    this.logger.log(`Subscribed to ${sessionId}`)
+    return () => sub?.unsubscribe()
+  }
+
+  // Type guard and JSON parsing moved to helpers
+
+  private async handle(msg: IMessage) {
+    try {
+      const body = (msg.body || '').toString().trim()
+      if (!body) return
+
+      const payload = parseJson(body)
+      if (!payload) {
+        this.logger.warn('WS message is not valid JSON; skipping')
+        return
+      }
+
+      if (!isPriceAnnounceMessage(payload)) {
+        this.logger.warn(
+          'WS JSON payload does not match PriceAnnounceMessage; skipping',
+        )
+        return
+      }
+      await this.worker.handlePriceAnnounce(payload)
+    } catch (e) {
+      if (e instanceof Error) {
+        this.logger.error('Failed to process WS message', e.stack)
+      } else {
+        this.logger.error(`Failed to process WS message: ${String(e)}`)
+      }
+    }
+  }
+}

@@ -5,6 +5,7 @@ import { CommandModule } from './command/command.module'
 import { MessageModule } from './message/message.module'
 import { WorkerModule } from './worker/worker.module'
 import { StorageModule } from './storage/storage.module'
+import { WsConsumerModule } from './services/ws-consumer/ws-consumer.module'
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { StorageModule } from './storage/storage.module'
     MessageModule,
     WorkerModule,
     StorageModule,
+    WsConsumerModule,
   ],
 })
 export class AppModule {}
