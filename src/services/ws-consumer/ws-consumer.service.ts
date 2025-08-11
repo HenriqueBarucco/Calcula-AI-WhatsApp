@@ -162,8 +162,6 @@ export class WsConsumerService implements OnModuleInit {
     return () => sub?.unsubscribe()
   }
 
-  // Type guard and JSON parsing moved to helpers
-
   private async handle(msg: IMessage) {
     try {
       const body = (msg.body || '').toString().trim()

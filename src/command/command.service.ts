@@ -1,14 +1,16 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { StorageService } from 'src/storage/storage.service'
 import { CalculaAiApiService } from 'src/services/calcula-ai-api/calcula-ai-api.service'
 import { MessageService } from 'src/message/message.service'
 import { Message } from 'easy-whatsapp-lib/lib/cjs/types/message'
 import { ConfigService } from '@nestjs/config'
+import { formatCurrencyBRL } from 'src/helpers/number'
 
 const SESSION_KEY = 'sessionId'
 
 @Injectable()
 export class CommandService {
+  private readonly logger = new Logger(CommandService.name)
   // eslint-disable-next-line no-useless-constructor
   constructor(
     private readonly storage: StorageService,
@@ -42,20 +44,20 @@ export class CommandService {
   private async startSession(): Promise<void> {
     const existing = await this.storage.get<string>(SESSION_KEY)
     if (existing) {
-      console.log('Session already exists, skipping start')
+      this.logger.log('Session already exists, skipping start')
       this.notify('Já existe uma sessão iniciada. Use /end para encerrar.')
       return
     }
 
     const id = await this.calculaAiApi.createSession()
     await this.storage.set(SESSION_KEY, id)
-    console.log('Session started:', id)
+    this.logger.log(`Session started: ${id}`)
     this.notify('Sessão iniciada com sucesso. 🛒')
   }
 
   private async endSession(): Promise<void> {
     await this.storage.remove(SESSION_KEY)
-    console.log('Session ended and local key cleared')
+    this.logger.log('Session ended and local key cleared')
 
     this.notify('Sessão encerrada com sucesso. 💰')
   }
@@ -66,25 +68,36 @@ export class CommandService {
 
     try {
       const session = await this.calculaAiApi.getSession({ sessionId })
-      const successCount = session.prices.filter(
+      const prices = session.prices ?? []
+      const successCount = prices.filter(
         (p) => p.status?.toUpperCase() === 'SUCCESS',
       ).length
-      const top5 = session.prices.slice(0, 5)
+      const pendingCount = prices.filter(
+        (p) => p.status?.toUpperCase() === 'PENDING',
+      ).length
+
+      const preview = prices.filter((p) => p.status?.toUpperCase() !== 'FAILED')
+      const top5 = preview.slice(0, 5)
       const bullets = top5
-        .map((p) => {
-          const isSuccess = p.status?.toUpperCase() === 'SUCCESS'
-          if (!isSuccess) return '• - (Processando)'
-          const name = p.name ?? '...'
-          const value = typeof p.value === 'number' ? p.value.toFixed(2) : '—'
-          return `• ${name} - ${value}`
-        })
+        .filter((p) => p.status?.toUpperCase() === 'SUCCESS')
+        .map((p) => `• ${p.name ?? '...'} - *${formatCurrencyBRL(p.value)}*`)
         .join('\n')
 
       const lines = [
-        `*Valor total*: R$: ${session.total.toFixed(2)}`,
-        `Produtos processados: ${successCount}`,
-        bullets && bullets.length > 0 ? bullets : '—',
+        `Valor total: *${formatCurrencyBRL(session.total)}* (${successCount} itens)`,
       ]
+
+      if (pendingCount > 0) {
+        lines.push(`Itens aguardando serem processados: ${pendingCount}`)
+      }
+
+      lines.push('\n')
+
+      lines.push(
+        bullets && bullets.length > 0
+          ? bullets
+          : 'Não há nenhum item na lista.',
+      )
 
       await this.messageService.sendMessage(
         message.group ?? message.phone,
@@ -103,7 +116,7 @@ export class CommandService {
 
     const { data, mimetype, caption } = message
     if (!data) {
-      console.warn('Image message missing data payload.')
+      this.logger.warn('Image message missing data payload.')
       return
     }
 
@@ -121,7 +134,7 @@ export class CommandService {
       try {
         buffer = Buffer.from(data, 'base64')
       } catch (e) {
-        console.error('Failed to decode image base64 data')
+        this.logger.error('Failed to decode image base64 data')
         return
       }
       const ext = (contentType.split('/')[1] || 'bin').toLowerCase()
@@ -136,11 +149,14 @@ export class CommandService {
         filename,
         caption,
       })
-      console.log('Price API success')
+      this.logger.log('Price API success')
 
       await this.notify('Já estou indo processar essa imagem! 👀')
     } catch (e) {
-      console.error('Price API failed:', e)
+      this.logger.error(
+        'Price API failed',
+        e instanceof Error ? e.stack : String(e),
+      )
     }
   }
 

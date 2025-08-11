@@ -1,4 +1,10 @@
-import { Inject, Injectable, OnModuleInit, forwardRef } from '@nestjs/common'
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  forwardRef,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { EasyWhatsApp } from 'easy-whatsapp-lib'
 import { Message } from 'easy-whatsapp-lib/lib/cjs/types/message'
@@ -7,6 +13,7 @@ import { WorkerService } from 'src/worker/worker.service'
 @Injectable()
 export class EasyWhatsAppService implements OnModuleInit {
   private connection: EasyWhatsApp
+  private readonly logger = new Logger(EasyWhatsAppService.name)
 
   // eslint-disable-next-line no-useless-constructor
   constructor(
@@ -26,7 +33,10 @@ export class EasyWhatsAppService implements OnModuleInit {
     try {
       await this.workerService.handleReceivedMessage(message)
     } catch (err) {
-      console.error('Worker processing failed:', err)
+      this.logger.error(
+        'Worker processing failed',
+        err instanceof Error ? err.stack : String(err),
+      )
     }
   }
 

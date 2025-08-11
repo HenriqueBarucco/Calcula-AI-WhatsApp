@@ -46,7 +46,6 @@ export class CalculaAiApiService {
         file.byteOffset + file.byteLength,
       ) as ArrayBuffer
     } else {
-      // Buffer
       const buf = file as Buffer
       arrayBuffer = buf.buffer.slice(
         buf.byteOffset,

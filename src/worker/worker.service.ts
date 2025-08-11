@@ -56,7 +56,6 @@ export class WorkerService {
     }
   }
 
-  // Helpers
   private getAllowedGroup(): string | null {
     return getAllowedGroup((k) => this.config.get<string>(k))
   }
