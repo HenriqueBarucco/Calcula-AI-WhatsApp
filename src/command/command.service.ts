@@ -88,7 +88,7 @@ export class CommandService {
       ]
 
       if (pendingCount > 0) {
-        lines.push(`Itens aguardando serem processados: ${pendingCount}`)
+        lines.push(`Itens sendo processados: ${pendingCount}`)
       }
 
       lines.push('\n')
