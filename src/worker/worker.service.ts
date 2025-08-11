@@ -27,10 +27,6 @@ export class WorkerService {
       }
 
       const command = extractCommand(message.message)
-      if (!command) {
-        this.logger.debug('No command found in message; skipping')
-        return
-      }
 
       await this.commandService.handleCommand(command, message)
     } catch (err) {
