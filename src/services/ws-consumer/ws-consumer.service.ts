@@ -57,6 +57,10 @@ export class WsConsumerService implements OnModuleInit {
     this.logger.log(`Connecting to WebSocket/STOMP at ${url}`)
     this.client = Stomp.over(() => this.createWs(url))
     this.client.reconnectDelay = 3000
+    this.client.heartbeatIncoming = 20000
+    this.client.heartbeatOutgoing = 20000
+    this.client.appendMissingNULLonIncoming = true
+    this.client.forceBinaryWSFrames = false
     this.client.debug = () => {}
 
     await new Promise<void>((resolve) => {
@@ -93,30 +97,18 @@ export class WsConsumerService implements OnModuleInit {
   }
 
   private createWs(url: string): IStompSocket {
-    if (/^https?:\/\//i.test(url)) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const WsLib = require('ws')
-        const g = globalThis as { WebSocket?: unknown }
-        if (!g.WebSocket) {
-          g.WebSocket = WsLib as unknown
-        }
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const SockJS = require('sockjs-client')
-        this.logger.log('Using SockJS transport')
-        const sock = new SockJS(url)
-        return sock as unknown as IStompSocket
-      } catch (err) {
-        this.logger.warn('SockJS unavailable, falling back to raw WebSocket')
-      }
-    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const SockJS = require('sockjs-client')
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const WS = require('ws')
-    const Ctor = (WS && (WS.WebSocket || WS.default)) || WS
-    const instance = typeof Ctor === 'function' ? new Ctor(url) : new WS(url)
-    this.logger.log('Using raw WebSocket transport')
-    return instance as unknown as IStompSocket
+      this.logger.log('Using SockJS transport')
+      const sock = new SockJS(url, null, { transports: ['websocket'] })
+      return sock as unknown as IStompSocket
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      this.logger.error(`Failed to initialize SockJS client: ${msg}`)
+      throw err
+    }
   }
 
   private initSessionWatcher() {
