@@ -123,10 +123,6 @@ export function createAppLogger(): LoggerService {
           format.timestamp(),
           format.errors({ stack: true }),
           format.splat(),
-          format((info) => {
-            ;(info as Record<string, unknown>).customFields = customFieldsBase
-            return info
-          })(),
           jsonLine,
         ),
       }) as unknown,
