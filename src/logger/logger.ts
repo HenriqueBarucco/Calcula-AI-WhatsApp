@@ -86,38 +86,19 @@ class LogstashWritable extends Writable {
 
 export function createAppLogger(): LoggerService {
   const level = process.env.LOG_LEVEL || 'info'
-  const service = process.env.SERVICE_NAME || 'calcula-ai-whatsapp'
+  const app = process.env.SERVICE_NAME || 'calcula-ai-whatsapp'
   const ls = parseLogstashUrl(process.env.LOGSTASH_URL)
-  const customFieldsBase = {
-    environment: process.env.ENV || process.env.NODE_ENV || 'development',
-    token: process.env.LOGSTASH_TOKEN || '',
-    app: service,
-    kind: process.env.LOG_KIND || 'worker',
-    type: 'json',
-  }
-
-  const addCustomFieldsNoToken = format((info) => {
-    const { environment, app, kind, type } = customFieldsBase
-    ;(info as Record<string, unknown>).customFields = {
-      environment,
-      app,
-      kind,
-      type,
-    }
-    return info
-  })
 
   const baseFormat = format.combine(
     format.timestamp(),
     format.errors({ stack: true }),
     format.splat(),
-    addCustomFieldsNoToken(),
     format.json(),
   )
 
   const jsonLine = format.printf((info) => JSON.stringify(info) + '\n')
 
-  const baseMeta = { service, env: process.env.NODE_ENV || 'development' }
+  const baseMeta = { app, env: process.env.NODE_ENV || 'dev' }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const winstonTransports: any[] = []
