@@ -56,9 +56,22 @@ export class WsConsumerService implements OnModuleInit {
 
     this.logger.log(`Connecting to WebSocket/STOMP at ${url}`)
     this.client = Stomp.over(() => this.createWs(url))
-    this.client.reconnectDelay = 3000
-    this.client.heartbeatIncoming = 20000
-    this.client.heartbeatOutgoing = 20000
+
+    const reconnectDelay = Number(this.config.get('WS_RECONNECT_DELAY') ?? 5000)
+    const heartbeatIncoming = Number(this.config.get('WS_HEARTBEAT_IN') ?? 0)
+    const heartbeatOutgoing = Number(
+      this.config.get('WS_HEARTBEAT_OUT') ?? 15000,
+    )
+
+    this.client.reconnectDelay = Number.isFinite(reconnectDelay)
+      ? reconnectDelay
+      : 5000
+    this.client.heartbeatIncoming = Number.isFinite(heartbeatIncoming)
+      ? heartbeatIncoming
+      : 0
+    this.client.heartbeatOutgoing = Number.isFinite(heartbeatOutgoing)
+      ? heartbeatOutgoing
+      : 15000
     this.client.appendMissingNULLonIncoming = true
     this.client.forceBinaryWSFrames = false
     this.client.debug = () => {}
@@ -67,6 +80,10 @@ export class WsConsumerService implements OnModuleInit {
       this.client!.onConnect = () => {
         this.logger.log('Connected to STOMP broker')
         this.initSessionWatcher()
+        this.storage
+          .get<string>('sessionId')
+          .then((sid) => this.resubscribe(sid || null))
+          .catch(() => undefined)
         resolve()
       }
       this.client!.onStompError = (frame: FrameImpl) => {
@@ -101,8 +118,13 @@ export class WsConsumerService implements OnModuleInit {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const SockJS = require('sockjs-client')
 
-      this.logger.log('Using SockJS transport')
-      const sock = new SockJS(url, null, { transports: ['websocket'] })
+      const transportsEnv = this.config.get<string>('WS_TRANSPORTS')
+      const transports = (transportsEnv || 'websocket')
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0)
+      this.logger.log(`Using SockJS transport(s): ${transports.join(',')}`)
+      const sock = new SockJS(url, null, { transports })
       return sock as unknown as IStompSocket
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
