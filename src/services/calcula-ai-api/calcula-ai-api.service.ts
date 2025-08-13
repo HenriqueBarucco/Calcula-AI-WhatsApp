@@ -59,7 +59,7 @@ export class CalculaAiApiService {
       new Blob([arrayBuffer], { type: contentType }),
       filename,
     )
-    if (caption) form.append('caption', caption)
+    if (caption) form.append('quantity', caption)
 
     const res = await fetch(this.buildUrl('/v1/sessions/prices'), {
       method: 'POST',
