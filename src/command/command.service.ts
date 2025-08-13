@@ -5,6 +5,7 @@ import { MessageService } from 'src/message/message.service'
 import { Message } from 'easy-whatsapp-lib/lib/cjs/types/message'
 import { ConfigService } from '@nestjs/config'
 import { formatCurrencyBRL } from 'src/helpers/number'
+import { extractCommand } from 'src/helpers/command'
 
 const SESSION_KEY = 'sessionId'
 
@@ -19,11 +20,15 @@ export class CommandService {
     private readonly config: ConfigService,
   ) {}
 
-  async handleCommand(command: string, message: Message) {
+  async handleCommand(message: Message) {
     if (message?.type === 'image') {
       await this.handleImageMessage(message)
       return
     }
+
+    const command = extractCommand(message.message)
+
+    if (!command) return
 
     switch (command) {
       case 'start':

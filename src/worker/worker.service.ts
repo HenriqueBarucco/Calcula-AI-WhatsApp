@@ -4,7 +4,6 @@ import { Message } from 'easy-whatsapp-lib/lib/cjs/types/message'
 import { CommandService } from 'src/command/command.service'
 import { MessageService } from 'src/message/message.service'
 import { PriceAnnounceMessage } from 'src/types/price-announce-message'
-import { extractCommand } from 'src/helpers/command'
 import { getAllowedGroup, isMessageFromAllowedGroup } from 'src/helpers/group'
 import { formatCurrencyBRL } from 'src/helpers/number'
 
@@ -26,9 +25,7 @@ export class WorkerService {
         return
       }
 
-      const command = extractCommand(message.message)
-
-      await this.commandService.handleCommand(command, message)
+      await this.commandService.handleCommand(message)
     } catch (err) {
       const msg = err instanceof Error ? err.stack : String(err)
       this.logger.error('Failed to handle received message', msg)

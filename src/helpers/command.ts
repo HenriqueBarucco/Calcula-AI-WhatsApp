@@ -1,6 +1,7 @@
-export function extractCommand(text?: string | null): string | null {
-  const value = (text || '').trim()
-  if (!value) return null
-  const [maybeCommand] = value.split(/\s+/)
-  return (maybeCommand || '').replace(/^\//, '').toLowerCase() || null
+export function extractCommand(text?: string | null): string | undefined {
+  const value = (text ?? '').trim()
+  if (!value.startsWith('/')) return undefined
+
+  const match = value.match(/^\/([a-zA-Z0-9_-]+)/)
+  return match?.[1]?.toLowerCase() || undefined
 }
