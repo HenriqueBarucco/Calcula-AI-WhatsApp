@@ -85,7 +85,10 @@ export class CommandService {
       const top5 = preview.slice(0, 5)
       const bullets = top5
         .filter((p) => p.status?.toUpperCase() === 'SUCCESS')
-        .map((p) => `• ${p.name ?? '...'} - *${formatCurrencyBRL(p.value)}*`)
+        .map(
+          (p) =>
+            `• ${p.quantity > 1 ? `${p.quantity}x` : ''} ${p.name ?? '...'} - *${formatCurrencyBRL(p.value)}*`,
+        )
         .join('\n')
 
       const lines = [
