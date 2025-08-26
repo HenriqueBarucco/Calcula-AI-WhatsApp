@@ -51,6 +51,9 @@ export class CommandService {
       case 'total':
         await this.handleTotalCommand(message)
         break
+      case 'list':
+        await this.handleListCommand(message)
+        break
       case 'add':
         await this.handleAddCommand(message)
         break
@@ -128,6 +131,47 @@ export class CommandService {
     } catch (e) {
       await this.notify(
         'Não foi possível obter o total. Tente novamente mais tarde.',
+      )
+    }
+  }
+
+  private async handleListCommand(message: Message): Promise<void> {
+    const sessionId = await this.getSessionId()
+    if (!sessionId) return
+
+    try {
+      const session = await this.calculaAiApi.getSession({ sessionId })
+      const prices = (session.prices ?? []).filter(
+        (p) => p.status.toUpperCase() === 'SUCCESS',
+      )
+
+      const lines: string[] = [
+        'Produtos na lista 📃',
+        `Valor total atual: *${formatCurrencyBRL(session.total)}*`,
+        '',
+      ]
+
+      if (prices.length === 0) {
+        lines.push('Não há nenhum item na lista.')
+      } else {
+        lines.push(
+          ...prices.map((p) => {
+            const id = p.id.slice(0, 3)
+            const quantityPart = p.quantity > 1 ? `${p.quantity}x ` : ''
+            const name = p.name
+            const price = formatCurrencyBRL(p.value)
+            return `(*${id}*) - ${quantityPart}${name} - *${price}*`
+          }),
+        )
+      }
+
+      await this.messageService.sendMessage(
+        message.group ?? message.phone,
+        lines.join('\n'),
+      )
+    } catch (e) {
+      await this.notify(
+        'Não foi possível obter a lista. Tente novamente mais tarde.',
       )
     }
   }
