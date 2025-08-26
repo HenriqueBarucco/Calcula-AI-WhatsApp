@@ -102,6 +102,25 @@ export class CalculaAiApiService {
     }
   }
 
+  async deletePrice(options: {
+    sessionId: string
+    priceId: string
+  }): Promise<void> {
+    const { sessionId, priceId } = options
+
+    const res = await fetch(this.buildUrl(`/v1/sessions/prices/${priceId}`), {
+      method: 'DELETE',
+      headers: {
+        session: sessionId,
+      },
+    })
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Price API failed: ${res.status} ${body}`)
+    }
+  }
+
   async getSession(options: { sessionId: string }): Promise<{
     id: string
     total: number

@@ -57,6 +57,9 @@ export class CommandService {
       case 'add':
         await this.handleAddCommand(message)
         break
+      case 'remove':
+        await this.handleRemoveCommand(message)
+        break
       default:
         this.notify('Esse comando não existe não... 🤔')
         break
@@ -124,10 +127,7 @@ export class CommandService {
           : 'Não há nenhum item na lista.',
       )
 
-      await this.messageService.sendMessage(
-        message.group ?? message.phone,
-        lines.join('\n'),
-      )
+      await this.messageService.sendMessage(message.group, lines.join('\n'))
     } catch (e) {
       await this.notify(
         'Não foi possível obter o total. Tente novamente mais tarde.',
@@ -165,10 +165,7 @@ export class CommandService {
         )
       }
 
-      await this.messageService.sendMessage(
-        message.group ?? message.phone,
-        lines.join('\n'),
-      )
+      await this.messageService.sendMessage(message.group, lines.join('\n'))
     } catch (e) {
       await this.notify(
         'Não foi possível obter a lista. Tente novamente mais tarde.',
@@ -185,9 +182,69 @@ export class CommandService {
     const state: AddState = { step: 'NAME' }
     await this.storage.set(key, state)
     await this.messageService.sendMessage(
-      message.group ?? message.phone,
+      message.group,
       'Qual o nome do produto que deseja adicionar?',
     )
+  }
+
+  private async handleRemoveCommand(message: Message): Promise<void> {
+    const sessionId = await this.getSessionId()
+    if (!sessionId) return
+
+    const raw = (message.message || '').trim()
+    const match = raw.match(/^\/remove\s+([a-zA-Z0-9_-]{1,})/)
+    if (!match) {
+      await this.messageService.sendMessage(message.group, 'Uso: /remove <id>')
+      return
+    }
+    const prefix = match[1].toLowerCase()
+
+    try {
+      const session = await this.calculaAiApi.getSession({ sessionId })
+      const candidates = session.prices.filter((p) =>
+        p.id?.toLowerCase().startsWith(prefix),
+      )
+
+      if (candidates.length === 0) {
+        await this.messageService.sendMessage(
+          message.group,
+          'Não encontrei nenhum item com esse id.',
+        )
+        return
+      }
+
+      if (candidates.length > 1) {
+        const sample = candidates
+          .slice(0, 5)
+          .map((p) => `(${p.id.slice(0, 3)}) ${p.name ?? '...'}`)
+          .join(', ')
+        await this.messageService.sendMessage(
+          message.group,
+          `Existe mais de um item com esse prefixo. Especifique melhor. Opções: ${sample}`,
+        )
+        return
+      }
+
+      const target = candidates[0]
+      await this.calculaAiApi.deletePrice({
+        sessionId,
+        priceId: target.id,
+      })
+
+      await this.messageService.sendMessage(
+        message.group,
+        `Item (${target.id.slice(0, 3)}) '${target.name ?? '...'}' removido ✅`,
+      )
+    } catch (e) {
+      this.logger.error(
+        'Failed to remove price',
+        e instanceof Error ? e.stack : String(e),
+      )
+      await this.messageService.sendMessage(
+        message.group,
+        'Não foi possível remover o item agora.',
+      )
+    }
   }
 
   private buildAddStateKey(phone: string): string {
@@ -209,7 +266,7 @@ export class CommandService {
         state.step = 'VALUE'
         await this.storage.set(key, state)
         await this.messageService.sendMessage(
-          message.group ?? message.phone,
+          message.group,
           'Qual o valor desse produto?',
         )
         return true
@@ -219,7 +276,7 @@ export class CommandService {
         const value = parseCurrencyToNumber(text)
         if (value == null) {
           await this.messageService.sendMessage(
-            message.group ?? message.phone,
+            message.group,
             'Valor inválido. Tente novamente. Ex: 12,34',
           )
           return true
@@ -228,7 +285,7 @@ export class CommandService {
         state.step = 'QUANTITY'
         await this.storage.set(key, state)
         await this.messageService.sendMessage(
-          message.group ?? message.phone,
+          message.group,
           'Qual a quantidade que deseja adicionar deste produto?',
         )
         return true
@@ -238,7 +295,7 @@ export class CommandService {
         const qty = parseInteger(text)
         if (qty == null || qty <= 0) {
           await this.messageService.sendMessage(
-            message.group ?? message.phone,
+            message.group,
             'Quantidade inválida. Digite um número inteiro maior que 0.',
           )
           return true
