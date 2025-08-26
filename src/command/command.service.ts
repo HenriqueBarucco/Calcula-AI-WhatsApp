@@ -4,8 +4,13 @@ import { CalculaAiApiService } from 'src/services/calcula-ai-api/calcula-ai-api.
 import { MessageService } from 'src/message/message.service'
 import { Message } from 'easy-whatsapp-lib/lib/cjs/types/message'
 import { ConfigService } from '@nestjs/config'
-import { formatCurrencyBRL } from 'src/helpers/number'
+import {
+  formatCurrencyBRL,
+  parseCurrencyToNumber,
+  parseInteger,
+} from 'src/helpers/number'
 import { extractCommand } from 'src/helpers/command'
+import { AddState } from 'src/types/add-state'
 
 const SESSION_KEY = 'sessionId'
 
@@ -26,6 +31,12 @@ export class CommandService {
       return
     }
 
+    const isCommandLike = message?.message?.trim().startsWith('/')
+    if (!isCommandLike) {
+      const continued = await this.processAddFlow(message)
+      if (continued) return
+    }
+
     const command = extractCommand(message.message)
 
     if (!command) return
@@ -39,6 +50,9 @@ export class CommandService {
         break
       case 'total':
         await this.handleTotalCommand(message)
+        break
+      case 'add':
+        await this.handleAddCommand(message)
         break
       default:
         this.notify('Esse comando não existe não... 🤔')
@@ -116,6 +130,98 @@ export class CommandService {
         'Não foi possível obter o total. Tente novamente mais tarde.',
       )
     }
+  }
+
+  private async handleAddCommand(message: Message): Promise<void> {
+    const sessionId = await this.getSessionId()
+    if (!sessionId) return
+
+    const key = this.buildAddStateKey(message.phone)
+
+    const state: AddState = { step: 'NAME' }
+    await this.storage.set(key, state)
+    await this.messageService.sendMessage(
+      message.group ?? message.phone,
+      'Qual o nome do produto que deseja adicionar?',
+    )
+  }
+
+  private buildAddStateKey(phone: string): string {
+    return `add:${phone}`
+  }
+
+  private async processAddFlow(message: Message): Promise<boolean> {
+    if (!message?.phone) return false
+    const key = this.buildAddStateKey(message.phone)
+    const state = await this.storage.get<AddState>(key)
+    if (!state) return false
+
+    const text = (message.message || '').trim()
+    if (!text) return true
+
+    try {
+      if (state.step === 'NAME') {
+        state.name = text
+        state.step = 'VALUE'
+        await this.storage.set(key, state)
+        await this.messageService.sendMessage(
+          message.group ?? message.phone,
+          'Qual o valor desse produto?',
+        )
+        return true
+      }
+
+      if (state.step === 'VALUE') {
+        const value = parseCurrencyToNumber(text)
+        if (value == null) {
+          await this.messageService.sendMessage(
+            message.group ?? message.phone,
+            'Valor inválido. Tente novamente. Ex: 12,34',
+          )
+          return true
+        }
+        state.value = value
+        state.step = 'QUANTITY'
+        await this.storage.set(key, state)
+        await this.messageService.sendMessage(
+          message.group ?? message.phone,
+          'Qual a quantidade que deseja adicionar deste produto?',
+        )
+        return true
+      }
+
+      if (state.step === 'QUANTITY') {
+        const qty = parseInteger(text)
+        if (qty == null || qty <= 0) {
+          await this.messageService.sendMessage(
+            message.group ?? message.phone,
+            'Quantidade inválida. Digite um número inteiro maior que 0.',
+          )
+          return true
+        }
+        state.quantity = qty
+
+        await this.calculaAiApi.addPrice({
+          sessionId: await this.getSessionId(),
+          name: state.name,
+          value: state.value,
+          quantity: state.quantity,
+        })
+
+        this.logger.log('Price API success')
+
+        await this.storage.remove(key)
+        return true
+      }
+    } catch (err) {
+      this.logger.error(
+        'Failed processing add flow',
+        err instanceof Error ? err.stack : String(err),
+      )
+      await this.storage.remove(key)
+    }
+
+    return true
   }
 
   private async handleImageMessage(message: Message): Promise<void> {

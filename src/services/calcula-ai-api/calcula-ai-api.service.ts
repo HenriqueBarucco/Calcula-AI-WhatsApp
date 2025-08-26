@@ -75,6 +75,33 @@ export class CalculaAiApiService {
     }
   }
 
+  async addPrice(options: {
+    sessionId: string
+    name: string
+    value: number
+    quantity: number
+  }): Promise<void> {
+    const { sessionId, name, value, quantity } = options
+
+    const form = new FormData()
+    form.append('name', name)
+    form.append('value', value.toString())
+    form.append('quantity', quantity.toString())
+
+    const res = await fetch(this.buildUrl('/v1/sessions/prices'), {
+      method: 'POST',
+      headers: {
+        session: sessionId,
+      },
+      body: form,
+    })
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Price API failed: ${res.status} ${body}`)
+    }
+  }
+
   async getSession(options: { sessionId: string }): Promise<{
     id: string
     total: number
