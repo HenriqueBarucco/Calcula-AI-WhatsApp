@@ -332,31 +332,43 @@ export class CommandService {
     const { data, mimetype, caption } = message
     if (!data) {
       this.logger.warn('Image message missing data payload.')
+      await this.notify('Imagem recebida sem conteúdo. Tente reenviar. ❌')
       return
     }
 
-    let buffer: Buffer
+    let buffer: Buffer | undefined
     let contentType = mimetype || 'application/octet-stream'
     let filename = 'image'
 
-    const dataUrlMatch = data.match(/^data:([^;]+);base64,(.*)$/)
-    if (dataUrlMatch) {
-      contentType = dataUrlMatch[1] || contentType
-      buffer = Buffer.from(dataUrlMatch[2], 'base64')
-      const ext = contentType.split('/')[1] || 'bin'
-      filename = `upload.${ext}`
-    } else {
-      try {
-        buffer = Buffer.from(data, 'base64')
-      } catch (e) {
-        this.logger.error('Failed to decode image base64 data')
+    try {
+      const dataUrlMatch = data.match(/^data:([^;]+);base64,(.*)$/)
+      if (dataUrlMatch) {
+        contentType = dataUrlMatch[1] || contentType
+        buffer = Buffer.from(dataUrlMatch[2], 'base64')
+      } else {
+        buffer = Buffer.from(data.replace(/\s/g, ''), 'base64')
+      }
+
+      if (!buffer || buffer.length === 0) {
+        this.logger.warn('Decoded image buffer is empty')
+        await this.notify(
+          'Não consegui ler essa imagem. Pode tentar novamente? ❌',
+        )
         return
       }
+
+      if (!/^image\//i.test(contentType)) {
+        this.logger.warn(
+          `Non-image mimetype detected (${contentType}), defaulting to image/jpeg`,
+        )
+        contentType = 'image/jpeg'
+      }
+
       const ext = (contentType.split('/')[1] || 'bin').toLowerCase()
       filename = `upload.${ext}`
-    }
 
-    try {
+      this.notify('Imagem recebida, enviando para processamento... ⏳')
+
       await this.calculaAiApi.uploadPricesImage({
         sessionId,
         file: buffer,
@@ -364,13 +376,16 @@ export class CommandService {
         filename,
         caption,
       })
-      this.logger.log('Price API success')
-
-      await this.notify('Já estou indo processar essa imagem! 👀')
+      this.logger.log(
+        `Price API success (size=${buffer.length} bytes, type=${contentType})`,
+      )
     } catch (e) {
       this.logger.error(
         'Price API failed',
         e instanceof Error ? e.stack : String(e),
+      )
+      await this.notify(
+        'Falha ao enviar a imagem. Tente novamente em instantes. 😓',
       )
     }
   }

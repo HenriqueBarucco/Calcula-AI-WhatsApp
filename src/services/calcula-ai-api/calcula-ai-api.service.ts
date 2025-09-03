@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 
 @Injectable()
 export class CalculaAiApiService {
   private readonly baseUrl: string
+  private readonly logger = new Logger(CalculaAiApiService.name)
 
   // eslint-disable-next-line no-useless-constructor
   constructor(private readonly config: ConfigService) {
@@ -53,26 +54,60 @@ export class CalculaAiApiService {
       ) as ArrayBuffer
     }
 
-    const form = new FormData()
-    form.append(
-      'file',
-      new Blob([arrayBuffer], { type: contentType }),
-      filename,
+    const maxRetries = parseInt(
+      this.config.get<string>('CALCULA_AI_API_UPLOAD_RETRIES') ?? '3',
+      10,
     )
-    if (caption) form.append('quantity', caption)
-
-    const res = await fetch(this.buildUrl('/v1/sessions/prices'), {
-      method: 'POST',
-      headers: {
-        session: sessionId,
-      },
-      body: form,
-    })
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`Price API failed: ${res.status} ${body}`)
+    const baseDelayMs = 300
+    let lastErr: unknown
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const started = Date.now()
+      try {
+        const form = new FormData()
+        form.append(
+          'file',
+          new Blob([arrayBuffer], { type: contentType }),
+          filename,
+        )
+        if (caption) form.append('quantity', caption)
+        const res = await fetch(this.buildUrl('/v1/sessions/prices'), {
+          method: 'POST',
+          headers: { session: sessionId },
+          body: form,
+        })
+        if (res.ok && res.status === 202) {
+          const elapsed = Date.now() - started
+          this.logger.log(
+            `uploadPricesImage success (status=204, size=${arrayBuffer.byteLength} bytes, attempt=${attempt}, elapsed=${elapsed}ms)`,
+          )
+          return
+        }
+        const bodyText = await res.text().catch(() => '')
+        throw new Error(
+          `Unexpected response (status=${res.status}, ok=${res.ok}) ${bodyText?.slice(0, 500)}`,
+        )
+      } catch (err) {
+        lastErr = err
+        if (attempt >= maxRetries) break
+        const delay =
+          baseDelayMs * 2 ** (attempt - 1) + Math.floor(Math.random() * 100)
+        this.logger.warn(
+          `uploadPricesImage attempt ${attempt} failed: ${
+            err instanceof Error ? err.message : String(err)
+          } – retrying in ${delay}ms (remaining=${maxRetries - attempt})`,
+        )
+        await this.sleep(delay)
+      }
     }
+    throw new Error(
+      `Price API upload failed after ${maxRetries} attempts: ${
+        lastErr instanceof Error ? lastErr.message : String(lastErr)
+      }`,
+    )
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   async addPrice(options: {

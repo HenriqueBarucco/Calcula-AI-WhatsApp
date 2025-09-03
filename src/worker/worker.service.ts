@@ -53,19 +53,19 @@ export class WorkerService {
     return getAllowedGroup((k) => this.config.get<string>(k))
   }
 
-  private formatPriceAnnounceMessage(p: PriceAnnounceMessage): string {
-    const status = String(p.status || '').toUpperCase()
-    if (status !== 'SUCCESS') {
+  private formatPriceAnnounceMessage(price: PriceAnnounceMessage): string {
+    if (price.status === 'PENDING') {
+      return 'Já estou processando essa imagem! 👀'
+    }
+
+    if (price.status === 'FAILED') {
       return 'Não foi possível processar essa foto... 😓'
     }
 
-    const price = typeof p.value === 'number' ? p.value : 0
-    const total = typeof p.total === 'number' ? p.total : 0
+    const priceBRL = formatCurrencyBRL(price.value)
+    const totalBRL = formatCurrencyBRL(price.total)
 
-    const priceBRL = formatCurrencyBRL(price)
-    const totalBRL = formatCurrencyBRL(total)
-
-    const name = p.name ?? '...'
-    return `'${name}' - *${priceBRL}* foi adicionado na lista! ✅\n Valor total atual: *${totalBRL}*`
+    const name = (price.name ?? '...').trim() || '...'
+    return `"${name}" - *${priceBRL}* foi adicionado na lista! ✅\nValor total atual: *${totalBRL}*`
   }
 }
