@@ -17,8 +17,16 @@ export class CalculaAiApiService {
     return `${base}${p}`
   }
 
-  async createSession(): Promise<string> {
-    const res = await fetch(this.buildUrl('/v1/sessions'), { method: 'POST' })
+  async createSession(hasClub: boolean): Promise<string> {
+    const res = await fetch(this.buildUrl('/v1/sessions'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        has_club: hasClub,
+      }),
+    })
     if (!res.ok) {
       const body = await res.text().catch(() => '')
       throw new Error(`Start session failed: ${res.status} ${body}`)

@@ -43,7 +43,7 @@ export class CommandService {
 
     switch (command) {
       case 'start':
-        await this.startSession()
+        await this.startSession(message)
         break
       case 'end':
         await this.endSession()
@@ -66,7 +66,7 @@ export class CommandService {
     }
   }
 
-  private async startSession(): Promise<void> {
+  private async startSession(message: Message): Promise<void> {
     const existing = await this.storage.get<string>(SESSION_KEY)
     if (existing) {
       this.logger.log('Session already exists, skipping start')
@@ -74,9 +74,12 @@ export class CommandService {
       return
     }
 
-    const id = await this.calculaAiApi.createSession()
+    const hasNoClub = message.message.includes('off')
+    const id = await this.calculaAiApi.createSession(hasNoClub!)
     await this.storage.set(SESSION_KEY, id)
-    this.logger.log(`Session started: ${id}`)
+    this.logger.log(
+      `Session started: ${id} with club ${hasNoClub ? 'off' : 'on'}`,
+    )
     this.notify('Sessão iniciada com sucesso. 🛒')
   }
 
