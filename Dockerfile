@@ -1,23 +1,24 @@
-FROM node:20 AS builder
+FROM node:22.3.0 AS builder
 
 WORKDIR /app
 
-ENV NODE_ENV=development
+COPY package.json pnpm-lock.yaml ./
 
-COPY package*.json ./
-RUN npm install
+RUN npm install -g pnpm@latest \
+	&& pnpm install --frozen-lockfile --shamefully-hoist
 
 COPY . .
-RUN npm run build
 
-FROM node:20
+RUN pnpm run build
+
+FROM node:22.3.0
+
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
 COPY --from=builder /app/dist ./dist
 
-EXPOSE 8080
-CMD ["npm", "run", "start:prod"]
+EXPOSE 3000
+
+CMD ["node", "-r", "@opentelemetry/auto-instrumentations-node/register", "dist/main.js"]

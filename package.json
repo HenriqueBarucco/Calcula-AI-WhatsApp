@@ -24,6 +24,8 @@
         "@nestjs/config": "^3.2.3",
         "@nestjs/core": "^10.4.20",
         "@nestjs/platform-express": "^10.4.20",
+        "@opentelemetry/api": "^1.9.0",
+        "@opentelemetry/auto-instrumentations-node": "^0.66.0",
         "@stomp/stompjs": "^7.1.1",
         "easy-whatsapp-lib": "github:HenriqueBarucco/Easy-WhatsApp-Lib",
         "node-persist": "^4.0.4",
